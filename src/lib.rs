@@ -3,14 +3,24 @@ use swc_ecma_ast::{Decl, ExportDecl};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 use swc_ecma_visit::{Visit, VisitWith};
 
-struct ExportedFunctionCounter {
-    count: usize,
+struct ExportedFunction {
+    name: String,
+    start_pos: usize,
+}
+struct ExportedFunctions {
+    functions: Vec<ExportedFunction>,
 }
 
-impl Visit for ExportedFunctionCounter {
+impl Visit for ExportedFunctions {
     fn visit_export_decl(&mut self, export_decl: &ExportDecl) {
-        if let Decl::Fn(_) = &export_decl.decl {
-            self.count += 1;
+        if let Decl::Fn(function) = &export_decl.decl {
+            let function_name = function.ident.sym.to_string();
+            let start_pos = function.ident.span.lo().0 as usize; // Convert BytePos to usize
+
+            self.functions.push(ExportedFunction {
+                name: function_name,
+                start_pos,
+            });
         }
     }
 }
@@ -18,12 +28,12 @@ impl Visit for ExportedFunctionCounter {
 pub fn find_functions(input: &str) -> usize {
     let mut parser = create_parser_for_input(input);
 
-    let mut counter = ExportedFunctionCounter { count: 0 };
+    let mut functions = ExportedFunctions { functions: Vec::new() };
 
     match parser.parse_module() {
         Ok(module) => {
             module.visit_with(&mut counter);
-            counter.count
+            functions.functions
         }
         Err(e) => {
             eprintln!("Error parsing input: {:?}", e);
