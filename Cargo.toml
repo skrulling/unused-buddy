@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+swc_ecma_parser = "*"
+swc_ecma_visit = "*"
+swc_ecma_ast = "*"
+swc_common = "*"
