@@ -1,14 +1,7 @@
 use swc_common::BytePos;
-use swc_ecma_parser::{
-    lexer::Lexer,
-    Parser, StringInput, Syntax, TsConfig,
-};
-use swc_ecma_visit::{
-    Visit, VisitWith,
-};
-use swc_ecma_ast::{
-    ExportDecl, Decl,
-};
+use swc_ecma_ast::{Decl, ExportDecl};
+use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
+use swc_ecma_visit::{Visit, VisitWith};
 
 struct ExportedFunctionCounter {
     count: usize,
@@ -19,24 +12,11 @@ impl Visit for ExportedFunctionCounter {
         if let Decl::Fn(_) = &export_decl.decl {
             self.count += 1;
         }
-        swc_ecma_visit::visit_export_decl(self, export_decl);
     }
 }
 
 pub fn find_functions(input: &str) -> usize {
-    let lexer = Lexer::new(
-        Syntax::Typescript(TsConfig {
-            tsx: false,
-            decorators: false,
-            dts: false,
-            no_early_errors: false,
-            disallow_ambiguous_jsx_like: false
-        }),
-        Default::default(),
-        StringInput::new(input, BytePos(0), BytePos(input.len() as u32)),
-        None,
-    );
-    let mut parser = Parser::new_from(lexer);
+    let mut parser = create_parser_for_input(input);
 
     let mut counter = ExportedFunctionCounter { count: 0 };
 
@@ -44,19 +24,33 @@ pub fn find_functions(input: &str) -> usize {
         Ok(module) => {
             module.visit_with(&mut counter);
             counter.count
-        },
+        }
         Err(e) => {
             eprintln!("Error parsing input: {:?}", e);
             0
-        },
+        }
     }
 }
 
+fn create_parser_for_input(input: &str) -> Parser<Lexer<'_>> {
+    let lexer = Lexer::new(
+        Syntax::Typescript(TsConfig {
+            tsx: false,
+            decorators: false,
+            dts: false,
+            no_early_errors: false,
+            disallow_ambiguous_jsx_like: false,
+        }),
+        swc_ecma_ast::EsVersion::Es2022,
+        StringInput::new(input, BytePos(0), BytePos(input.len() as u32)),
+        None,
+    );
+    Parser::new_from(lexer)
+}
 
 #[cfg(test)]
 mod tests {
     use crate::find_functions;
-
 
     #[test]
     fn it_finds_exported_functions() {
