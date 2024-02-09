@@ -1,6 +1,4 @@
-use swc_common::{
-    sync::Lrc, BytePos, SourceMap
-};
+use swc_common::BytePos;
 use swc_ecma_parser::{
     lexer::Lexer,
     Parser, StringInput, Syntax, TsConfig,
