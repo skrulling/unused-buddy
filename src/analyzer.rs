@@ -778,4 +778,235 @@ mod tests {
         let files = collect_source_files(dir.path(), &opts).expect("collect");
         assert!(files.iter().all(|f| !f.ends_with("a.test.ts")));
     }
+
+    #[test]
+    fn barrel_reexport_chain_marks_only_truly_unused() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "import { used } from './barrel'; console.log(used);",
+        )
+        .expect("write");
+        fs::write(dir.path().join("src/barrel.ts"), "export { used } from './leaf';").expect("write");
+        fs::write(
+            dir.path().join("src/leaf.ts"),
+            "export const used = 1; export const dead = 2;",
+        )
+        .expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            out.findings.iter().any(|f| {
+                f.kind == FindingKind::UnusedExport
+                    && f.file.ends_with("leaf.ts")
+                    && f.symbol.as_deref() == Some("dead")
+            }),
+            "expected dead export in leaf.ts to be reported"
+        );
+        assert!(
+            !out.findings.iter().any(|f| {
+                f.kind == FindingKind::UnusedExport
+                    && f.file.ends_with("leaf.ts")
+                    && f.symbol.as_deref() == Some("used")
+            }),
+            "used export in leaf.ts should not be reported"
+        );
+    }
+
+    #[test]
+    fn default_import_does_not_hide_other_unused_exports() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "import value from './mod'; console.log(value);",
+        )
+        .expect("write");
+        fs::write(
+            dir.path().join("src/mod.ts"),
+            "const main = 1; export default main; export const extra = 2;",
+        )
+        .expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            out.findings.iter().any(|f| {
+                f.kind == FindingKind::UnusedExport
+                    && f.file.ends_with("mod.ts")
+                    && f.symbol.as_deref() == Some("extra")
+            }),
+            "expected extra export to be reported as unused"
+        );
+        assert!(
+            !out.findings.iter().any(|f| {
+                f.kind == FindingKind::UnusedExport
+                    && f.file.ends_with("mod.ts")
+                    && f.symbol.as_deref() == Some("default")
+            }),
+            "default export should be treated as used"
+        );
+    }
+
+    #[test]
+    fn namespace_import_conservatively_marks_module_exports_used() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "import * as ns from './mod'; console.log(ns.used);",
+        )
+        .expect("write");
+        fs::write(
+            dir.path().join("src/mod.ts"),
+            "export const used = 1; export const maybeUsed = 2;",
+        )
+        .expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            !out.findings
+                .iter()
+                .any(|f| f.kind == FindingKind::UnusedExport && f.file.ends_with("mod.ts")),
+            "namespace import should prevent symbol-level false positives in v1"
+        );
+    }
+
+    #[test]
+    fn export_all_chain_marks_source_module_reachable() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "import { used } from './barrel'; console.log(used);",
+        )
+        .expect("write");
+        fs::write(dir.path().join("src/barrel.ts"), "export * from './leaf';").expect("write");
+        fs::write(
+            dir.path().join("src/leaf.ts"),
+            "export const used = 1; export const maybe = 2;",
+        )
+        .expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            !out.findings
+                .iter()
+                .any(|f| f.kind == FindingKind::UnreachableFile && f.file.ends_with("leaf.ts")),
+            "leaf.ts should be reachable through export * chain"
+        );
+    }
+
+    #[test]
+    fn mixed_esm_cjs_require_keeps_cjs_module_reachable() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "const mod = require('./cjs'); console.log(mod.used);",
+        )
+        .expect("write");
+        fs::write(
+            dir.path().join("src/cjs.ts"),
+            "const used = 1; const dead = 2; module.exports = { used, dead };",
+        )
+        .expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            !out.findings
+                .iter()
+                .any(|f| f.kind == FindingKind::UnreachableFile && f.file.ends_with("cjs.ts")),
+            "required cjs module should not be marked unreachable"
+        );
+    }
+
+    #[test]
+    fn dynamic_import_literal_creates_reachability_edge() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "async function load() { return import('./lazy'); } load();",
+        )
+        .expect("write");
+        fs::write(dir.path().join("src/lazy.ts"), "export const x = 1;").expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            !out.findings
+                .iter()
+                .any(|f| f.kind == FindingKind::UnreachableFile && f.file.ends_with("lazy.ts")),
+            "literal dynamic import should mark module reachable"
+        );
+    }
+
+    #[test]
+    fn dynamic_import_expression_is_uncertain() {
+        let dir = tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+        fs::write(
+            dir.path().join("src/index.ts"),
+            "const p = './lazy'; import(p);",
+        )
+        .expect("write");
+        fs::write(dir.path().join("src/lazy.ts"), "export const x = 1;").expect("write");
+
+        let analyzer = Analyzer::new(AnalyzerOptions {
+            include: vec!["src/**/*.{js,ts,jsx,tsx}".into()],
+            exclude: vec![],
+            entry: vec![],
+            extensions: vec!["js".into(), "ts".into(), "jsx".into(), "tsx".into()],
+        });
+        let out = analyzer.scan(dir.path()).expect("scan");
+
+        assert!(
+            out.findings
+                .iter()
+                .any(|f| f.kind == FindingKind::Uncertain && f.reason == "dynamic_import_non_literal"),
+            "dynamic import expression should emit uncertain finding"
+        );
+    }
 }
