@@ -9,6 +9,8 @@ import { execFileSync } from 'node:child_process';
 const assetsDir = process.env.RELEASE_ASSETS_DIR;
 const tag = process.env.RELEASE_TAG;
 const dryRun = process.env.DRY_RUN === '1';
+const repoSlug = process.env.GITHUB_REPOSITORY || 'skrulling/unused-buddy';
+const repoUrl = `https://github.com/${repoSlug}`;
 
 if (!assetsDir || !tag) {
   throw new Error('RELEASE_ASSETS_DIR and RELEASE_TAG are required.');
@@ -78,7 +80,20 @@ for (const artifact of manifest.artifacts) {
     name: artifact.package,
     version,
     description: `Platform binary for unused-buddy (${artifact.os}/${artifact.cpu})`,
+    keywords: ['unused-code', 'dead-code', 'cli', 'rust', 'javascript', 'typescript'],
+    author: 'skrulling',
     license: 'MIT',
+    homepage: repoUrl,
+    repository: {
+      type: 'git',
+      url: `git+${repoUrl}.git`,
+    },
+    bugs: {
+      url: `${repoUrl}/issues`,
+    },
+    publishConfig: {
+      access: 'public',
+    },
     os: [artifact.os],
     cpu: [artifact.cpu],
     files: ['bin'],
@@ -105,7 +120,32 @@ const metaPackageJson = {
   name: 'unused-buddy',
   version,
   description: 'Fast CLI for finding, listing, and safely removing unused JS/TS code.',
+  keywords: [
+    'unused-code',
+    'dead-code',
+    'cli',
+    'static-analysis',
+    'javascript',
+    'typescript',
+    'rust',
+  ],
+  author: 'skrulling',
   license: 'MIT',
+  homepage: repoUrl,
+  repository: {
+    type: 'git',
+    url: `git+${repoUrl}.git`,
+  },
+  bugs: {
+    url: `${repoUrl}/issues`,
+  },
+  engines: {
+    node: '>=22.14.0',
+    npm: '>=11.5.1',
+  },
+  publishConfig: {
+    access: 'public',
+  },
   files: ['bin', 'install.js', 'checksums.json'],
   bin: {
     'unused-buddy': 'bin/unused-buddy.js',
