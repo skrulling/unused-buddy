@@ -41,6 +41,19 @@ git push origin v0.1.0
    - publishes platform packages first
    - publishes `unused-buddy` meta package last
 
+## Manual workflow testing (no new version needed)
+
+You can test release pipelines from GitHub Actions UI without creating new tags:
+
+1. Run `Release Binaries` via `workflow_dispatch` with:
+   - `release_tag`: existing stable tag (for example `v0.1.0`)
+   - `dry_run`: `true`
+2. This builds binaries, checksums, and manifest, then uploads `release-dry-run-*` artifacts.
+3. Run `Publish npm Packages` via `workflow_dispatch` with:
+   - `release_tag`: existing stable tag
+   - `dry_run`: `true`
+4. This validates trusted publishing environment and runs npm publish in `--dry-run` mode.
+
 ## Failure policy
 
 - No `NPM_TOKEN` fallback is used.

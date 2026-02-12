@@ -4,6 +4,20 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to build (e.g. v0.1.0)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and package only; do not publish GitHub Release'
+        required: true
+        type: choice
+        default: 'true'
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write
@@ -11,7 +25,36 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-22.04
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      version: ${{ steps.meta.outputs.version }}
+      dry_run: ${{ steps.meta.outputs.dry_run }}
     steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            release_tag="${GITHUB_REF_NAME}"
+            dry_run="false"
+          else
+            release_tag="${{ inputs.release_tag }}"
+            dry_run="${{ inputs.dry_run }}"
+          fi
+
+          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_tag must be stable semver prefixed with v (e.g. v0.1.0). Got: $release_tag"
+            exit 1
+          fi
+
+          version="${release_tag#v}"
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -28,17 +71,13 @@ jobs:
       matrix:
         include:
           - runner: macos-14
-            archive_name: unused-buddy-v${VERSION}-darwin-aarch64.tar.gz
-            exe: false
+            archive_template: unused-buddy-v${VERSION}-darwin-aarch64.tar.gz
           - runner: ubuntu-24.04-arm
-            archive_name: unused-buddy-v${VERSION}-linux-aarch64-gnu.tar.gz
-            exe: false
+            archive_template: unused-buddy-v${VERSION}-linux-aarch64-gnu.tar.gz
           - runner: ubuntu-22.04
-            archive_name: unused-buddy-v${VERSION}-linux-x86_64-gnu.tar.gz
-            exe: false
+            archive_template: unused-buddy-v${VERSION}-linux-x86_64-gnu.tar.gz
           - runner: windows-2022
-            archive_name: unused-buddy-v${VERSION}-windows-x86_64.zip
-            exe: true
+            archive_template: unused-buddy-v${VERSION}-windows-x86_64.zip
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -50,29 +89,28 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Set version
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
       - name: Package archive (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
+          set -euo pipefail
           mkdir -p dist/stage
           cp target/release/unused-buddy dist/stage/unused-buddy
           chmod +x dist/stage/unused-buddy
-          ARCHIVE_NAME=$(echo "${{ matrix.archive_name }}" | sed "s/\${VERSION}/$VERSION/g")
-          tar -C dist/stage -czf "dist/$ARCHIVE_NAME" unused-buddy
+          archive_name=$(echo "${{ matrix.archive_template }}" | sed "s/\${VERSION}/$VERSION/g")
+          tar -C dist/stage -czf "dist/$archive_name" unused-buddy
 
       - name: Package archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           New-Item -ItemType Directory -Path dist/stage -Force | Out-Null
           Copy-Item target/release/unused-buddy.exe dist/stage/unused-buddy.exe
-          $archiveName = "${{ matrix.archive_name }}".Replace('${VERSION}', $env:VERSION)
+          $archiveName = "${{ matrix.archive_template }}".Replace('${VERSION}', $env:VERSION)
           Compress-Archive -Path dist/stage/unused-buddy.exe -DestinationPath ("dist/" + $archiveName)
 
       - name: Upload artifact archive
@@ -82,7 +120,7 @@ jobs:
           path: dist/*
 
   finalize:
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-22.04
     steps:
       - name: Download archives
@@ -93,8 +131,10 @@ jobs:
 
       - name: Build manifest and checksums
         shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          set -euo pipefail
           (cd dist && sha256sum *.tar.gz *.zip > checksums.txt)
           cat > dist/asset_manifest.json <<MANIFEST
           {
@@ -132,9 +172,18 @@ jobs:
           }
           MANIFEST
 
+      - name: Upload dry-run artifacts
+        if: needs.verify.outputs.dry_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run-${{ needs.verify.outputs.release_tag }}
+          path: dist/*
+
       - name: Create GitHub release
+        if: needs.verify.outputs.dry_run != 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.verify.outputs.release_tag }}
           files: |
             dist/*.tar.gz
             dist/*.zip

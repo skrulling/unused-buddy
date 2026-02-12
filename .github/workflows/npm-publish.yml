@@ -3,6 +3,20 @@ name: Publish npm Packages
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to publish from (e.g. v0.1.0)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Generate and npm publish in --dry-run mode'
+        required: true
+        type: choice
+        default: 'true'
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: read
@@ -10,9 +24,33 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-22.04
     steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            release_tag="${{ github.event.release.tag_name }}"
+            dry_run="false"
+          else
+            release_tag="${{ inputs.release_tag }}"
+            dry_run="${{ inputs.dry_run }}"
+          fi
+
+          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_tag must be stable semver prefixed with v (e.g. v0.1.0). Got: $release_tag"
+            exit 1
+          fi
+
+          version="${release_tag#v}"
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -27,13 +65,15 @@ jobs:
       - name: Preflight checks (OIDC + toolchain)
         shell: bash
         run: |
+          set -euo pipefail
+
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
             echo "OIDC token environment is unavailable. Trusted publishing requires id-token: write."
             exit 1
           fi
 
           node -e "
-            const [major, minor, patch] = process.versions.node.split('.').map(Number);
+            const [major, minor] = process.versions.node.split('.').map(Number);
             if (major < 22 || (major === 22 && minor < 14)) {
               console.error('Node 22.14.0+ required, got', process.versions.node);
               process.exit(1);
@@ -57,32 +97,39 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/release-assets"
-          gh release download "${{ github.event.release.tag_name }}" \
+          gh release download "${{ steps.meta.outputs.release_tag }}" \
             --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/release-assets" \
             --pattern "unused-buddy-v*" \
             --pattern "checksums.txt" \
             --pattern "asset_manifest.json"
 
-      - name: Publish platform + meta npm packages (trusted publishing)
+      - name: Set publish mode
+        shell: bash
+        run: |
+          if [ "${{ steps.meta.outputs.dry_run }}" = "true" ]; then
+            echo "DRY_RUN=1" >> "$GITHUB_ENV"
+          else
+            echo "DRY_RUN=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish platform + meta npm packages
         env:
           RELEASE_ASSETS_DIR: ${{ runner.temp }}/release-assets
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ env.DRY_RUN }}
         run: node scripts/npm/publish-from-release.mjs
 
-      - name: Set version
-        run: echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-
       - name: Smoke check via npm install
+        if: steps.meta.outputs.dry_run != 'true'
         shell: bash
         run: |
           set -euo pipefail
           for i in $(seq 1 20); do
-            if npm i -g "unused-buddy@${VERSION}" >/dev/null 2>&1; then
+            if npm i -g "unused-buddy@${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
               unused-buddy --help >/dev/null
               exit 0
             fi
