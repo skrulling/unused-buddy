@@ -10,7 +10,6 @@ This project uses:
 1. Ensure npm package entries exist:
    - `unused-buddy`
    - `unused-buddy-darwin-arm64`
-   - `unused-buddy-darwin-x64`
    - `unused-buddy-linux-arm64-gnu`
    - `unused-buddy-linux-x64-gnu`
    - `unused-buddy-win32-x64`

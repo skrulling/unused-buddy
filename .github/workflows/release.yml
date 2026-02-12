@@ -30,9 +30,6 @@ jobs:
           - runner: macos-14
             archive_name: unused-buddy-v${VERSION}-darwin-aarch64.tar.gz
             exe: false
-          - runner: macos-13
-            archive_name: unused-buddy-v${VERSION}-darwin-x86_64.tar.gz
-            exe: false
           - runner: ubuntu-24.04-arm
             archive_name: unused-buddy-v${VERSION}-linux-aarch64-gnu.tar.gz
             exe: false
@@ -108,13 +105,6 @@ jobs:
                 "os": "darwin",
                 "cpu": "arm64",
                 "archive": "unused-buddy-v${VERSION}-darwin-aarch64.tar.gz",
-                "binary": "unused-buddy"
-              },
-              {
-                "package": "unused-buddy-darwin-x64",
-                "os": "darwin",
-                "cpu": "x64",
-                "archive": "unused-buddy-v${VERSION}-darwin-x86_64.tar.gz",
                 "binary": "unused-buddy"
               },
               {

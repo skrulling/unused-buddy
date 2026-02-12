@@ -170,7 +170,6 @@ const cp = require('node:child_process');
 
 const mapping = {
   'darwin:arm64': { pkg: 'unused-buddy-darwin-arm64', bin: 'bin/unused-buddy' },
-  'darwin:x64': { pkg: 'unused-buddy-darwin-x64', bin: 'bin/unused-buddy' },
   'linux:arm64': { pkg: 'unused-buddy-linux-arm64-gnu', bin: 'bin/unused-buddy' },
   'linux:x64': { pkg: 'unused-buddy-linux-x64-gnu', bin: 'bin/unused-buddy' },
   'win32:x64': { pkg: 'unused-buddy-win32-x64', bin: 'bin/unused-buddy.exe' },
@@ -214,7 +213,6 @@ const crypto = require('node:crypto');
 
 const mapping = {
   'darwin:arm64': { pkg: 'unused-buddy-darwin-arm64', bin: 'bin/unused-buddy' },
-  'darwin:x64': { pkg: 'unused-buddy-darwin-x64', bin: 'bin/unused-buddy' },
   'linux:arm64': { pkg: 'unused-buddy-linux-arm64-gnu', bin: 'bin/unused-buddy' },
   'linux:x64': { pkg: 'unused-buddy-linux-x64-gnu', bin: 'bin/unused-buddy' },
   'win32:x64': { pkg: 'unused-buddy-win32-x64', bin: 'bin/unused-buddy.exe' },

@@ -214,7 +214,7 @@ cargo bench --bench scan_bench -- --sample-size 10
 
 Stable tags (`vX.Y.Z`) trigger release workflows that build binaries for:
 
-- macOS arm64/x64
+- macOS arm64
 - Linux arm64/x64 (glibc)
 - Windows x64
 
