@@ -1,0 +1,7 @@
+{
+  "name": "unused-buddy-dev",
+  "private": true,
+  "scripts": {
+    "release": "node scripts/release/release.mjs"
+  }
+}

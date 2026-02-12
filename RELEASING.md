@@ -57,3 +57,27 @@ If you have release assets locally:
 ```
 
 This performs `npm publish --dry-run` for generated packages.
+
+## Release helper
+
+You can use the built-in helper:
+
+```bash
+npm run release -- 0.2.0
+```
+
+It will:
+
+1. ensure clean git working tree
+2. ensure the tag does not already exist
+3. run tests (unless `--skip-tests`)
+4. bump `Cargo.toml` package version
+5. commit (`release: vX.Y.Z`)
+6. create tag (`vX.Y.Z`)
+7. push branch and tag to `origin`
+
+Dry-run mode:
+
+```bash
+npm run release -- 0.2.0 --dry-run
+```
