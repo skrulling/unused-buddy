@@ -110,7 +110,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist/stage -Force | Out-Null
           Copy-Item target/release/unused-buddy.exe dist/stage/unused-buddy.exe
-          $archiveName = "${{ matrix.archive_template }}".Replace('${VERSION}', $env:VERSION)
+          $archiveTemplate = '${{ matrix.archive_template }}'
+          $archiveName = $archiveTemplate -replace '\$\{VERSION\}', $env:VERSION
           Compress-Archive -Path dist/stage/unused-buddy.exe -DestinationPath ("dist/" + $archiveName)
 
       - name: Upload artifact archive
