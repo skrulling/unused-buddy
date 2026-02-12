@@ -207,3 +207,30 @@ Tips:
 ```bash
 cargo bench --bench scan_bench -- --sample-size 10
 ```
+
+## Distribution
+
+### GitHub Releases
+
+Stable tags (`vX.Y.Z`) trigger release workflows that build binaries for:
+
+- macOS arm64/x64
+- Linux arm64/x64 (glibc)
+- Windows x64
+
+Each release includes:
+
+- platform archives
+- `checksums.txt`
+- `asset_manifest.json`
+
+### npm (Trusted Publishing)
+
+npm publishing uses Trusted Publishers (OIDC) only.
+
+- no `NPM_TOKEN` fallback in normal release flow
+- platform packages are published first
+- `unused-buddy` meta package is published last
+- install path verifies binary checksums
+
+See `RELEASING.md` for setup and release steps.

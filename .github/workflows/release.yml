@@ -1,0 +1,155 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test --locked
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            archive_name: unused-buddy-v${VERSION}-darwin-aarch64.tar.gz
+            exe: false
+          - runner: macos-13
+            archive_name: unused-buddy-v${VERSION}-darwin-x86_64.tar.gz
+            exe: false
+          - runner: ubuntu-24.04-arm
+            archive_name: unused-buddy-v${VERSION}-linux-aarch64-gnu.tar.gz
+            exe: false
+          - runner: ubuntu-22.04
+            archive_name: unused-buddy-v${VERSION}-linux-x86_64-gnu.tar.gz
+            exe: false
+          - runner: windows-2022
+            archive_name: unused-buddy-v${VERSION}-windows-x86_64.zip
+            exe: true
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Set version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Package archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/stage
+          cp target/release/unused-buddy dist/stage/unused-buddy
+          chmod +x dist/stage/unused-buddy
+          ARCHIVE_NAME=$(echo "${{ matrix.archive_name }}" | sed "s/\${VERSION}/$VERSION/g")
+          tar -C dist/stage -czf "dist/$ARCHIVE_NAME" unused-buddy
+
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/stage -Force | Out-Null
+          Copy-Item target/release/unused-buddy.exe dist/stage/unused-buddy.exe
+          $archiveName = "${{ matrix.archive_name }}".Replace('${VERSION}', $env:VERSION)
+          Compress-Archive -Path dist/stage/unused-buddy.exe -DestinationPath ("dist/" + $archiveName)
+
+      - name: Upload artifact archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.runner }}
+          path: dist/*
+
+  finalize:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Build manifest and checksums
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          (cd dist && sha256sum *.tar.gz *.zip > checksums.txt)
+          cat > dist/asset_manifest.json <<MANIFEST
+          {
+            "version": "${VERSION}",
+            "artifacts": [
+              {
+                "package": "unused-buddy-darwin-arm64",
+                "os": "darwin",
+                "cpu": "arm64",
+                "archive": "unused-buddy-v${VERSION}-darwin-aarch64.tar.gz",
+                "binary": "unused-buddy"
+              },
+              {
+                "package": "unused-buddy-darwin-x64",
+                "os": "darwin",
+                "cpu": "x64",
+                "archive": "unused-buddy-v${VERSION}-darwin-x86_64.tar.gz",
+                "binary": "unused-buddy"
+              },
+              {
+                "package": "unused-buddy-linux-arm64-gnu",
+                "os": "linux",
+                "cpu": "arm64",
+                "archive": "unused-buddy-v${VERSION}-linux-aarch64-gnu.tar.gz",
+                "binary": "unused-buddy"
+              },
+              {
+                "package": "unused-buddy-linux-x64-gnu",
+                "os": "linux",
+                "cpu": "x64",
+                "archive": "unused-buddy-v${VERSION}-linux-x86_64-gnu.tar.gz",
+                "binary": "unused-buddy"
+              },
+              {
+                "package": "unused-buddy-win32-x64",
+                "os": "win32",
+                "cpu": "x64",
+                "archive": "unused-buddy-v${VERSION}-windows-x86_64.zip",
+                "binary": "unused-buddy.exe"
+              }
+            ]
+          }
+          MANIFEST
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/asset_manifest.json
+          draft: false
+          prerelease: false
+          generate_release_notes: true

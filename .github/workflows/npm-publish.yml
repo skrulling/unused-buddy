@@ -1,0 +1,92 @@
+name: Publish npm Packages
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Upgrade npm to trusted-publisher minimum
+        run: npm install -g npm@11.5.2
+
+      - name: Preflight checks (OIDC + toolchain)
+        shell: bash
+        run: |
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "OIDC token environment is unavailable. Trusted publishing requires id-token: write."
+            exit 1
+          fi
+
+          node -e "
+            const [major, minor, patch] = process.versions.node.split('.').map(Number);
+            if (major < 22 || (major === 22 && minor < 14)) {
+              console.error('Node 22.14.0+ required, got', process.versions.node);
+              process.exit(1);
+            }
+          "
+
+          npm --version
+          node -e "
+            const v = process.argv[1].split('.').map(Number);
+            const min = [11, 5, 1];
+            for (let i = 0; i < 3; i++) {
+              if ((v[i] ?? 0) > min[i]) process.exit(0);
+              if ((v[i] ?? 0) < min[i]) {
+                console.error('npm 11.5.1+ required, got', process.argv[1]);
+                process.exit(1);
+              }
+            }
+          " "$(npm --version)"
+
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/release-assets" \
+            --pattern "unused-buddy-v*" \
+            --pattern "checksums.txt" \
+            --pattern "asset_manifest.json"
+
+      - name: Publish platform + meta npm packages (trusted publishing)
+        env:
+          RELEASE_ASSETS_DIR: ${{ runner.temp }}/release-assets
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/npm/publish-from-release.mjs
+
+      - name: Set version
+        run: echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+      - name: Smoke check via npm install
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            if npm i -g "unused-buddy@${VERSION}" >/dev/null 2>&1; then
+              unused-buddy --help >/dev/null
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "smoke check failed after retries"
+          exit 1
