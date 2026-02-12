@@ -11,6 +11,7 @@ const tag = process.env.RELEASE_TAG;
 const dryRun = process.env.DRY_RUN === '1';
 const repoSlug = process.env.GITHUB_REPOSITORY || 'skrulling/unused-buddy';
 const repoUrl = `https://github.com/${repoSlug}`;
+const publishTarget = process.env.PUBLISH_TARGET || 'all'; // all | meta | windows | none
 
 if (!assetsDir || !tag) {
   throw new Error('RELEASE_ASSETS_DIR and RELEASE_TAG are required.');
@@ -105,7 +106,11 @@ for (const artifact of manifest.artifacts) {
   fs.writeFileSync(path.join(pkgDir, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
   fs.writeFileSync(path.join(pkgDir, 'README.md'), `# ${artifact.package}\n\nBinary package for unused-buddy.\n`);
 
-  npmPublish(pkgDir);
+  if (publishTarget === 'all') {
+    npmPublish(pkgDir);
+  } else if (publishTarget === 'windows' && artifact.package === 'unused-buddy-win32-x64') {
+    npmPublish(pkgDir);
+  }
 }
 
 const metaDir = path.join(publishRoot, 'unused-buddy');
@@ -163,7 +168,9 @@ fs.writeFileSync(path.join(metaDir, 'bin', 'unused-buddy.js'), launcherScript())
 fs.chmodSync(path.join(metaDir, 'bin', 'unused-buddy.js'), 0o755);
 fs.writeFileSync(path.join(metaDir, 'README.md'), '# unused-buddy\n\nCLI binary wrapper package.\n');
 
-npmPublish(metaDir);
+if (publishTarget === 'all' || publishTarget === 'meta') {
+  npmPublish(metaDir);
+}
 
 function parseChecksums(filePath) {
   const map = new Map();
@@ -195,7 +202,13 @@ function extractArchive(archivePath, outDir) {
 }
 
 function npmPublish(pkgDir) {
-  const args = ['publish', '--access', 'public', '--provenance'];
+  const args = ['publish', '--access', 'public'];
+  const shouldUseProvenance =
+    process.env.FORCE_PROVENANCE === '1' ||
+    (process.env.GITHUB_ACTIONS === 'true' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+  if (shouldUseProvenance) {
+    args.push('--provenance');
+  }
   if (dryRun) {
     args.push('--dry-run');
   }
