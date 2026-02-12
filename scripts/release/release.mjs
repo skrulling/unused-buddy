@@ -42,21 +42,25 @@ if (!fs.existsSync(cargoTomlPath)) {
 }
 
 const currentVersion = readPackageVersion(cargoTomlPath);
-if (currentVersion === version) {
-  fail(`Cargo.toml is already at version ${version}`);
-}
+const needsVersionBump = currentVersion !== version;
 
 if (!skipTests) {
   run('cargo', ['test', '-q'], { dryRun });
 }
 
-const updated = bumpCargoVersion(cargoTomlPath, version);
-if (!updated) {
-  fail('failed to update Cargo.toml version');
+if (needsVersionBump) {
+  const updated = bumpCargoVersion(cargoTomlPath, version);
+  if (!updated) {
+    fail('failed to update Cargo.toml version');
+  }
+} else {
+  console.log(`Cargo.toml already at ${version}; continuing release without version bump.`);
 }
 
 try {
-  run('git', ['add', 'Cargo.toml'], { dryRun });
+  if (needsVersionBump) {
+    run('git', ['add', 'Cargo.toml'], { dryRun });
+  }
   run('git', ['commit', '-m', `release: ${tag}`], { dryRun });
   run('git', ['tag', tag], { dryRun });
   run('git', ['push', 'origin', branch], { dryRun });
