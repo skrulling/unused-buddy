@@ -60,8 +60,10 @@ if (needsVersionBump) {
 try {
   if (needsVersionBump) {
     run('git', ['add', 'Cargo.toml'], { dryRun });
+    run('git', ['commit', '-m', `release: ${tag}`], { dryRun });
+  } else {
+    run('git', ['commit', '--allow-empty', '-m', `release: ${tag}`], { dryRun });
   }
-  run('git', ['commit', '-m', `release: ${tag}`], { dryRun });
   run('git', ['tag', tag], { dryRun });
   run('git', ['push', 'origin', branch], { dryRun });
   run('git', ['push', 'origin', tag], { dryRun });
